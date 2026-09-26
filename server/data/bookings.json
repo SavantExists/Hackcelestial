@@ -1,0 +1,37 @@
+[
+  {
+    "bookingId": "HG-MUFRWMVY",
+    "experiences": [
+      3,
+      1
+    ],
+    "totalTime": 2,
+    "createdAt": "2026-09-24T16:55:45.118Z"
+  },
+  {
+    "bookingId": "HG-MUFRWVWG",
+    "experiences": [
+      1,
+      2
+    ],
+    "totalTime": 1.7,
+    "createdAt": "2026-09-24T16:55:56.800Z"
+  },
+  {
+    "bookingId": "HG-MUFRXRK7",
+    "experiences": [
+      3,
+      1
+    ],
+    "totalTime": 2,
+    "createdAt": "2026-09-24T16:56:37.831Z"
+  },
+  {
+    "bookingId": "HG-MUFRY5B3",
+    "experiences": [
+      2
+    ],
+    "totalTime": 0.65,
+    "createdAt": "2026-09-24T16:56:55.647Z"
+  }
+]
