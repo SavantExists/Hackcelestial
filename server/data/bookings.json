@@ -33,5 +33,13 @@
     ],
     "totalTime": 0.65,
     "createdAt": "2026-09-24T16:56:55.647Z"
+  },
+  {
+    "bookingId": "HG-MUI779UD",
+    "experiences": [
+      1
+    ],
+    "totalTime": 1.08,
+    "createdAt": "2026-09-26T09:39:28.021Z"
   }
 ]

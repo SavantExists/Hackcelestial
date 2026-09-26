@@ -17,7 +17,7 @@ function suitability(experience, preferences) {
   score += nearby ? 8 : 3;
   score += preferences.weather === 'rain' ? (experience.indoor ? 12 : -25) : 3;
   score += Math.min(experience.merchantOffer || 0, 20) / 2;
-  score += experience.venueStatus === 'open' ? 4 : -40;
+  score += experience.venueStatus === 'open' ? 4 : experience.venueStatus === 'closed' ? -40 : 0;
   return Math.max(0, Math.min(100, Math.round(score)));
 }
 
@@ -45,7 +45,7 @@ function getRecommendations(req, res) {
     weather
   };
   const recommendations = applyOffers(readExperiences(), req.app.locals.readOffers())
-    .filter(experience => experience.venueStatus === 'open')
+    .filter(experience => experience.venueStatus !== 'closed')
     .filter(experience => preferences.weather === 'rain' ? experience.indoor : experience.featuredInClear !== false)
     .map(experience => {
       const fit = suitability(experience, preferences);

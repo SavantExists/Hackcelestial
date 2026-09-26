@@ -13,7 +13,8 @@ function scoreExperience(experience, preferences) {
   const duration = minutes(experience.duration) + minutes(experience.travel);
   const timeScore = duration <= Number(preferences.hours || 2.5) * 60 ? 4 : -8;
   const offerScore = Math.min(experience.merchantOffer || 0, 20) / 4;
-  return Math.max(20, Math.min(99, Math.round(experience.score + matches * 3 + budgetScore + weatherScore + timeScore + offerScore)));
+  const venueScore = experience.venueStatus === 'closed' ? -20 : 0;
+  return Math.max(20, Math.min(99, Math.round(experience.score + matches * 3 + budgetScore + weatherScore + timeScore + offerScore + venueScore)));
 }
 
 function generateItinerary(req, res) {
@@ -25,6 +26,7 @@ function generateItinerary(req, res) {
   };
   const offers = req.app.locals.readOffers();
   const experiences = readExperiences()
+    .filter(item => item.venueStatus !== 'closed')
     .filter(item => preferences.rain ? item.weather === 'covered' : item.featuredInClear !== false)
     .map(item => {
       const activeOffer = offers.filter(offer => offer.status === 'live' && new Date(offer.expiresAt) > new Date() && item.vibe.includes(offer.targetVibe))

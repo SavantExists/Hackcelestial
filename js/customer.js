@@ -1,3 +1,14 @@
+let leafletMap = null;
+let mapMarkers = {};
+let routeLine = null;
+// Map vibe names to distinct pin colors
+const vibeColors = {
+  "Solo & Quiet": "#3B82F6",      // Blue
+  "Local Artisans": "#10B981",    // Green
+  "Hidden Food": "#F59E0B",       // Orange
+  "Culture & Heritage": "#8B5CF6",// Purple
+  "Nightlife": "#EC4899"          // Pink
+};
 const initialExperiences = [];
 const rainExperiences = [];
 const API_BASE_URL = '/api';
@@ -8,6 +19,22 @@ const state = { hours: 2.5, budget: '$$', chosenVibes: ['Local Artisans', 'Cultu
 const iconNames = { '⌖': 'map-pin', '☂': 'cloud-rain', '☀': 'sun', '♧': 'bell', '◷': 'clock-3', '＋': 'plus', '↗': 'arrow-up-right', '◆': 'gem', '←': 'arrow-left', '⚡': 'zap', '✦': 'sparkles', '×': 'x', '⌄': 'chevron-down', '★': 'star', '✓': 'check', '☰': 'menu' };
 const icon = value => `<i data-lucide="${iconNames[value] || value}" aria-hidden="true"></i>`;
 const app = document.querySelector('#customer-app');
+// Helper function to generate SVG custom pins on the fly
+function createCustomPin(color, pinLetter) {
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 36" width="30" height="42">
+      <path d="M12 0C5.37 0 0 5.37 0 12c0 9 12 24 12 24s12-15 12-24c0-6.63-5.37-12-12-12z" fill="${color}"/>
+      <circle cx="12" cy="12" r="7" fill="#FFFFFF"/>
+      <text x="12" y="16" font-size="11" font-weight="bold" fill="${color}" text-anchor="middle">${pinLetter}</text>
+    </svg>`;
+  return L.divIcon({
+    className: 'custom-map-pin',
+    html: svg,
+    iconSize: [30, 42],
+    iconAnchor: [15, 42],
+    popupAnchor: [0, -36]
+  });
+}
 
 // Convert the original icon characters to browser Lucide icons after each render.
 function initializeIcons(root = document) {
@@ -64,8 +91,118 @@ function card(item, index) {
   const added = state.itinerary.includes(item.id);
   return `<article class="experience-card" style="--delay:${index * 70}ms"><div class="card-image"><img src="${item.image}" alt="${item.title}"><div class="auth-badge">★ 95% authentic</div><button class="save" aria-label="Save ${item.title}">＋</button></div><div class="card-body"><p class="category">${item.kind}</p><h3>${item.title}</h3><div class="meta"><span>⌖ ${item.distance}</span><span>◷ ${item.duration}</span><span>${item.budget}</span></div><div class="fit"><div><span>AI feasibility</span><b>${item.fit}% fit</b></div><div class="progress"><i style="width:${item.fit}%"></i></div></div><button class="action ${added ? 'added' : ''}" data-add="${item.id}">${added ? '✓ Added to route' : 'Add to itinerary ＋'}</button></div></article>`;
 }
-function map(experiences) {
-  return `<div class="map-panel"><div class="map-header"><span>⌖ LIVE DISCOVERY MAP</span><button>♧ 186 exploring nearby</button></div><div class="water water-a"></div><div class="water water-b"></div><span class="street s1">MERIDIAN ST</span><span class="street s2">SABLE AVE</span><span class="street s3">CATHEDRAL WAY</span>${experiences.map((item, i) => `<div class="pin pin-${i}"><span>${item.pin}</span><div class="pin-label"><b>${item.match}% match</b><small>${item.title}</small></div></div>`).join('')}<div class="you-are-here"><span></span><div><b>You are here</b><small>Downtown Quarter</small></div></div><div class="map-brand">HiddenGems<span>AI</span></div></div>`;
+function map() {
+  return `<div class="map-panel"><div class="map-header"><span>⌖ LIVE DISCOVERY MAP</span><button>♧ 186 exploring nearby</button></div><div id="map-container" aria-label="Interactive map of Ratnagiri"></div></div>`;
+}
+function renderMap(experiences) {
+  const mapContainer = document.querySelector('#map-container') || document.querySelector('.map');
+  if (!mapContainer) return;
+  if (typeof L === 'undefined') {
+    mapContainer.textContent = 'The interactive map could not load. Check your internet connection and reload.';
+    return;
+  }
+
+  // Initialize Map if not already rendered
+  if (!leafletMap) {
+    mapContainer.innerHTML = `<div id="leaflet-map" style="height: 100%; width: 100%; min-height: 400px; border-radius: 12px;"></div>`;
+
+    // Bounds for Ratnagiri District
+    const ratnagiriBounds = [
+      [16.4000, 72.7000],
+      [17.5000, 73.9000]
+    ];
+
+    leafletMap = L.map('leaflet-map', {
+      center: [16.9902, 73.3120],
+      zoom: 11,
+      minZoom: 10,
+      maxZoom: 16,
+      maxBounds: ratnagiriBounds,
+      maxBoundsViscosity: 1.0
+    });
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    }).addTo(leafletMap);
+  }
+
+  // Clear existing markers and route line
+  Object.values(mapMarkers).forEach(m => leafletMap.removeLayer(m));
+  mapMarkers = {};
+  if (routeLine) leafletMap.removeLayer(routeLine);
+
+  // Plot markers for each experience
+  experiences.forEach(item => {
+    if (!Number.isFinite(item.lat) || !Number.isFinite(item.lng)) return;
+
+    const primaryVibe = (item.vibe && item.vibe[0]) || "Solo & Quiet";
+    const pinColor = vibeColors[primaryVibe] || "#3B82F6";
+    const customIcon = createCustomPin(pinColor, item.pin || "•");
+
+    const marker = L.marker([item.lat, item.lng], { icon: customIcon })
+      .bindPopup(`
+        <div style="font-family: sans-serif; padding: 4px;">
+          <h4 style="margin: 0 0 4px 0;">${item.title}</h4>
+          <p style="margin: 0 0 6px 0; font-size: 12px; color: #666;">${item.kind} • ${item.duration}</p>
+          <span style="background: ${pinColor}; color: #fff; padding: 2px 6px; border-radius: 4px; font-size: 10px;">
+            ${primaryVibe}
+          </span>
+        </div>
+      `)
+      .addTo(leafletMap);
+
+    mapMarkers[item.id] = marker;
+  });
+
+  // Highlight itinerary pins & draw path
+  updateMapItineraryHighlights();
+}
+
+function updateMapItineraryHighlights() {
+  if (!leafletMap) return;
+
+  const activeItineraryIds = state.itinerary || [];
+  const selectedPoints = [];
+
+  // 1. Highlight / Dim pins based on itinerary selection
+  Object.keys(mapMarkers).forEach(id => {
+    const numericId = Number(id);
+    const marker = mapMarkers[id];
+
+    if (activeItineraryIds.includes(numericId)) {
+      marker.setOpacity(1.0);
+    } else if (activeItineraryIds.length > 0) {
+      marker.setOpacity(0.35); // Dim non-itinerary markers
+    } else {
+      marker.setOpacity(1.0);
+    }
+  });
+
+  // 2. Clear old path line
+  if (routeLine) {
+    leafletMap.removeLayer(routeLine);
+    routeLine = null;
+  }
+
+  activeItineraryIds.forEach(id => {
+    const marker = mapMarkers[id];
+    if (!marker) return;
+    const latLng = marker.getLatLng();
+    selectedPoints.push([latLng.lat, latLng.lng]);
+  });
+
+  // 3. Draw dashed path connecting itinerary locations in order
+  if (selectedPoints.length > 1) {
+    routeLine = L.polyline(selectedPoints, {
+      color: '#FF5722',
+      weight: 4,
+      dashArray: '6, 8',
+      opacity: 0.85
+    }).addTo(leafletMap);
+
+    // Zoom map to fit all stops in the active itinerary
+    leafletMap.fitBounds(routeLine.getBounds(), { padding: [40, 40] });
+  }
 }
 function updateItinerary(experiences) {
   const items = state.itinerary.map(id => experiences.find(item => item.id === id) || initialExperiences.find(item => item.id === id)).filter(Boolean);
@@ -80,7 +217,7 @@ function calculateFeasibility(experience, preferences) {
   const budgetScore = budgetLevels[experience.budget] <= budgetLevels[preferences.budget] ? 5 : -4;
   const timeScore = visitMinutes <= preferences.hours * 60 ? 4 : -8;
   const weatherScore = preferences.rain ? (experience.weather === 'covered' ? 10 : -18) : 2;
-  const venueScore = experience.venueStatus === 'open' ? 3 : -20;
+  const venueScore = experience.venueStatus === 'open' ? 3 : experience.venueStatus === 'closed' ? -20 : 0;
   const offerScore = Math.min(experience.merchantOffer || 0, 20) / 4;
   return Math.max(20, Math.min(99, Math.round(experience.score + matchingVibes * 3 + budgetScore + timeScore + weatherScore + venueScore + offerScore)));
 }
@@ -93,9 +230,16 @@ function getScoredExperiences(source) {
 }
 function render(source) {
   const experiences = getScoredExperiences(source);
+  if (leafletMap) {
+    leafletMap.remove();
+    leafletMap = null;
+    mapMarkers = {};
+    routeLine = null;
+  }
   app.innerHTML = `<div class="app-shell"><div class="folk-pattern top-pattern"></div><div class="folk-pattern side-pattern"></div><div class="marigold marigold-one">✿</div><div class="marigold marigold-two">✿</div>${header()}<header class="hero"><div><p class="eyebrow">✦ AI LOCAL CONCIERGE</p><h1>Your time is short.<br><em>Make it unforgettable.</em></h1><p class="subtitle">We find the little places that turn a free afternoon into a story worth keeping.</p><div class="hand-painted-note">Made for happy wandering <span>✦</span></div></div><div class="hero-art" aria-hidden="true"><div class="hero-sun">☼</div><div class="hero-flower f-one">✿</div><div class="hero-flower f-two">❋</div><div class="hero-flower f-three">✽</div><p>Ghoomo<br>Phiro</p></div><button class="generate">✦ Generate my route ↗</button></header><section class="control-bar glass"><div class="time-control"><div class="control-label">◷ Available time <b id="hours-value">${state.hours} hrs</b></div><input id="hours" type="range" min="1" max="8" step="0.5" value="${state.hours}"><div class="range-labels"><span>1 hr</span><span>8 hrs</span></div></div><div class="divider"></div><div class="budget-control"><div class="control-label">Your budget</div><div class="budget-buttons">${['$', '$$', '$$$'].map(value => `<button class="${state.budget === value ? 'selected' : ''}" data-budget="${value}">${value}</button>`).join('')}</div></div><div class="divider"></div><div class="vibe-control"><div class="control-label">What’s your vibe?</div><div class="vibe-chips">${vibes.map(vibe => `<button class="${state.chosenVibes.includes(vibe) ? 'selected' : ''}" data-vibe="${vibe}">${state.chosenVibes.includes(vibe) ? '✓ ' : ''}${vibe}</button>`).join('')}</div></div></section><main class="content"><section class="discover"><div class="section-head"><div><p class="eyebrow">CURATED FOR YOU</p><h2>${state.rain ? 'A weather-proof adventure' : 'Your hidden gems nearby'}</h2></div><button class="text-button">See all gems ↗</button></div><div class="feed-grid">${map(experiences)}<div class="cards-grid">${experiences.map(card).join('')}</div></div></section>${updateItinerary(experiences)}</main></div>`;
   initializeIcons(app);
   bindEvents();
+  renderMap(experiences);
 }
 // Add selected experience to the itinerary without allowing duplicates or a fourth stop.
 async function addToItinerary(id, button) {
