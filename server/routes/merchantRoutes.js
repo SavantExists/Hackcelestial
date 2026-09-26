@@ -1,7 +1,9 @@
 const express = require('express');
-const { getAnalytics } = require('../controllers/merchantController');
+const { getAnalytics, getMerchantExperiences } = require('../controllers/merchantController');
+const { authenticate, requireRole } = require('../middleware/authMiddleware');
 
 const router = express.Router();
-router.get('/analytics', getAnalytics);
+router.get('/analytics', authenticate, requireRole('merchant'), getAnalytics);
+router.get('/experiences', authenticate, requireRole('merchant'), getMerchantExperiences);
 
 module.exports = router;

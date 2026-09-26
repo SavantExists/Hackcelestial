@@ -1,67 +1,110 @@
-const { readExperiences, applyOffers, budgetLevels } = require('./experienceController');
-const allowedVibes = new Set(['Solo & Quiet', 'Local Artisans', 'Hidden Food', 'Culture & Heritage', 'Nightlife']);
+const { getPublicExperiences, applyOffers, budgetLevels } = require("./experienceController");
+const { generateItinerary } = require("../services/semanticRecommendationService");
 
-function minutes(value) {
-  return Number.parseInt(value, 10) || 0;
-}
+const allowedVibes = new Set([
+  "Solo & Quiet", "Local Artisans", "Hidden Food", "Culture & Heritage", "Nightlife",
+  "Nature & Scenic", "Adventure", "Photography", "History", "Family Friendly",
+  "Romantic", "Shopping", "Spiritual", "Beach & Coastal", "Wellness & Relaxation",
+  "Local Festivals", "Art & Creativity"
+]);
+const legacyBudgetLimits = { "$": 500, "$$": 1000, "$$$": 1500 };
+const groupSizes = { Solo: 1, Couple: 2, Friends: 4, Family: 4 };
 
-function suitability(experience, preferences) {
-  const visitMinutes = minutes(experience.duration) + minutes(experience.travel);
-  const matchingVibes = experience.vibe.filter(vibe => preferences.vibes.includes(vibe)).length;
-  const withinBudget = budgetLevels[experience.budget] <= budgetLevels[preferences.budget];
-  const nearby = Number.parseFloat(experience.distance) <= 1;
-  let score = 50;
-  score += matchingVibes * 12;
-  score += withinBudget ? 12 : -8;
-  score += visitMinutes <= preferences.availableTime * 60 ? 10 : -25;
-  score += nearby ? 8 : 3;
-  score += preferences.weather === 'rain' ? (experience.indoor ? 12 : -25) : 3;
-  score += Math.min(experience.merchantOffer || 0, 20) / 2;
-  score += experience.venueStatus === 'open' ? 4 : -40;
-  return Math.max(0, Math.min(100, Math.round(score)));
-}
+function normalizePreferences(input = {}) {
+  const time_available_hours = Number(input.time_available_hours ?? input.availableTime);
+  const group_size = Number(input.group_size ?? groupSizes[input.groupSize] ?? 1);
+  const budget_limit = Number(input.budget_limit ?? legacyBudgetLimits[input.budget]);
+  const user_vibes = input.user_vibes ?? input.vibes;
+  const rawWeather = String(input.weather_condition ?? input.weather ?? "clear").toLowerCase();
+  const weather_condition = rawWeather === "rain" || rawWeather === "rainy" ? "rainy" : rawWeather;
 
-function getRecommendations(req, res) {
-  const availableTime = Number(req.body.availableTime);
-  const budget = req.body.budget;
-  const vibes = req.body.vibes;
-  const weather = req.body.weather;
-  if (!Number.isFinite(availableTime) || availableTime < 1 || availableTime > 8) {
-    return res.status(400).json({ success: false, message: 'Available time must be between 1 and 8 hours.' });
+  if (!Number.isFinite(time_available_hours) || time_available_hours < 1 || time_available_hours > 8) {
+    throw new Error("Available time must be between 1 and 8 hours.");
   }
-  if (!budgetLevels[budget]) {
-    return res.status(400).json({ success: false, message: 'Budget selection is invalid.' });
+  if (!Number.isInteger(group_size) || group_size < 1 || group_size > 50) {
+    throw new Error("Group size must be a whole number between 1 and 50.");
   }
-  if (!Array.isArray(vibes) || vibes.length === 0 || vibes.some(vibe => typeof vibe !== 'string' || !allowedVibes.has(vibe.trim()))) {
-    return res.status(400).json({ success: false, message: 'Choose at least one valid vibe.' });
+  if (!Number.isFinite(budget_limit) || budget_limit <= 0) {
+    throw new Error("Budget limit must be greater than zero.");
   }
-  if (weather !== 'rain' && weather !== 'clear') {
-    return res.status(400).json({ success: false, message: 'Weather selection is invalid.' });
+  if (!Array.isArray(user_vibes) || user_vibes.length === 0 || user_vibes.some(vibe => typeof vibe !== "string" || !allowedVibes.has(vibe.trim()))) {
+    throw new Error("Choose at least one valid vibe.");
   }
-  const preferences = {
-    availableTime,
-    budget,
-    vibes,
-    weather
+  if (!["clear", "rainy"].includes(weather_condition)) {
+    throw new Error("Weather condition must be \"clear\" or \"rainy\".");
+  }
+
+  return {
+    time_available_hours,
+    group_size,
+    budget_limit,
+    weather_condition,
+    user_vibes: user_vibes.map(vibe => vibe.trim()),
+    start_time: typeof input.start_time === "string" && input.start_time.trim() ? input.start_time.trim() : "09:00 AM",
+    availableTime: time_available_hours,
+    budget: input.budget || Object.entries(legacyBudgetLimits).find(([, limit]) => limit === budget_limit)?.[0] || "$$$",
+    vibes: user_vibes.map(vibe => vibe.trim()),
+    weather: weather_condition === "rainy" ? "rain" : "clear"
   };
-  const recommendations = applyOffers(readExperiences(), req.app.locals.readOffers())
-    .filter(experience => experience.venueStatus === 'open')
-    .filter(experience => preferences.weather === 'rain' ? experience.indoor : experience.featuredInClear !== false)
-    .map(experience => {
-      const fit = suitability(experience, preferences);
-      return { ...experience, fit, match: Math.min(99, fit + 2) };
-    })
-    .sort((first, second) => second.fit - first.fit);
-
-  let usedMinutes = 0;
-  const itinerary = recommendations.filter(experience => {
-    const total = minutes(experience.duration) + minutes(experience.travel);
-    if (usedMinutes + total > preferences.availableTime * 60) return false;
-    usedMinutes += total;
-    return true;
-  }).slice(0, 3).map(experience => experience.id);
-
-  res.json({ success: true, data: { recommendations, itinerary, usedMinutes, preferences } });
 }
 
-module.exports = { getRecommendations };
+function candidateCost(experience) {
+  if (Number.isFinite(Number(experience.cost))) return Number(experience.cost);
+  return legacyBudgetLimits[experience.budget] || Number.POSITIVE_INFINITY;
+}
+
+function isRainCompatible(experience) {
+  return ["indoor", "all"].includes(String(experience.weather_type || "").toLowerCase());
+}
+
+async function buildRecommendations(input, app) {
+  const preferences = normalizePreferences(input);
+  const offers = await app.locals.readOffers();
+  
+  const candidates = applyOffers(await getPublicExperiences(), offers)
+    .filter(experience => experience.venueStatus === "open")
+    .filter(experience => Number(experience.max_group_size) >= preferences.group_size)
+    .filter(experience => candidateCost(experience) <= preferences.budget_limit)
+    .filter(experience => preferences.weather_condition !== "rainy" || isRainCompatible(experience))
+    .filter(experience => preferences.weather_condition === "rainy" || experience.featuredInClear !== false);
+
+  const payload = {
+    start_time: preferences.start_time,
+    time_available_hours: preferences.time_available_hours,
+    budget_limit: preferences.budget_limit,
+    user_vibes: preferences.user_vibes,
+    experiences: candidates
+  };
+
+  const response = await generateItinerary(payload);
+  
+  const itineraryIds = response.itinerary.map(item => item.id).filter(id => id != null);
+
+  const recommendations = (response.experiences || candidates).map(exp => {
+    exp.fit = Math.round(exp.vibe_score || 0);
+    exp.match = exp.fit;
+    return exp;
+  }).sort((a, b) => b.fit - a.fit);
+
+  return { 
+    preferences, 
+    recommendations, 
+    itinerary: response.itinerary,
+    schedule: response.itinerary,
+    totalSpent: response.totalSpent,
+    budgetLimit: response.budgetLimit
+  };
+}
+
+async function getRecommendations(req, res) {
+  try {
+    const result = await buildRecommendations(req.body, req.app);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    const status = /semantic|worker|python/i.test(error.message) ? 503 : 400;
+    res.status(status).json({ success: false, message: error.message });
+  }
+}
+
+module.exports = { getRecommendations, buildRecommendations, normalizePreferences, allowedVibes };
+

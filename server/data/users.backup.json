@@ -1,0 +1,4 @@
+[
+  { "id": 1, "role": "traveler", "name": "Guest Traveler" },
+  { "id": 2, "role": "merchant", "name": "Downtown Quarter Merchant" }
+]

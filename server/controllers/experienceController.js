@@ -1,11 +1,19 @@
-const fs = require('fs');
-const path = require('path');
-
-const experiencesPath = path.join(__dirname, '..', 'data', 'experiences.json');
+const Experience = require('../models/mongoose/Experience');
 const budgetLevels = { '$': 1, '$$': 2, '$$$': 3 };
 
-function readExperiences() {
-  return JSON.parse(fs.readFileSync(experiencesPath, 'utf8'));
+function withoutMongoId(document) {
+  const { _id, ...data } = document;
+  return data;
+}
+
+async function readExperiences() {
+  const experiences = await Experience.find().lean();
+  return experiences.map(withoutMongoId);
+}
+
+async function getPublicExperiences() {
+  const experiences = await Experience.find({ verified: true }).lean();
+  return experiences.map(withoutMongoId).filter(experience => experience.verified === true);
 }
 
 function activeOfferForExperience(experience, offers) {
@@ -38,12 +46,12 @@ function queryScore(experience, { budget, vibe, time, rain }) {
   return Math.min(99, Math.round(score));
 }
 
-function getExperiences(req, res) {
+async function getExperiences(req, res) {
   const { budget, vibe } = req.query;
   const time = Number(req.query.time);
   const rain = req.query.rain === 'true' || req.query.weather === 'rain';
-  const offers = req.app.locals.readOffers();
-  let experiences = applyOffers(readExperiences(), offers);
+  const offers = await req.app.locals.readOffers();
+  let experiences = applyOffers(await getPublicExperiences(), offers);
 
   if (rain) experiences = experiences.filter(experience => experience.indoor && experience.venueStatus === 'open');
   else experiences = experiences.filter(experience => experience.featuredInClear !== false);
@@ -57,11 +65,13 @@ function getExperiences(req, res) {
   res.json({ success: true, data: { experiences, count: experiences.length } });
 }
 
-function getExperienceById(req, res) {
+async function getExperienceById(req, res) {
   const id = Number(req.params.id);
-  const experience = applyOffers(readExperiences(), req.app.locals.readOffers()).find(item => item.id === id);
+  const experiences = await getPublicExperiences();
+  const offers = await req.app.locals.readOffers();
+  const experience = applyOffers(experiences, offers).find(item => item.id === id);
   if (!experience) return res.status(404).json({ success: false, message: 'Experience not found.' });
   res.json({ success: true, data: { experience } });
 }
 
-module.exports = { getExperiences, getExperienceById, readExperiences, applyOffers, budgetLevels };
+module.exports = { getExperiences, getExperienceById, readExperiences, getPublicExperiences, applyOffers, budgetLevels };

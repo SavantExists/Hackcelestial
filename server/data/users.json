@@ -1,4 +1,75 @@
 [
-  { "id": 1, "role": "traveler", "name": "Guest Traveler" },
-  { "id": 2, "role": "merchant", "name": "Downtown Quarter Merchant" }
+  {
+    "id": 1,
+    "role": "traveler",
+    "name": "Guest Traveler"
+  },
+  {
+    "id": 2,
+    "role": "merchant",
+    "name": "Ratnagiri Coastal Merchant"
+  },
+  {
+    "id": 3,
+    "name": "Priya Ratnagiri",
+    "email": "traveler.test.1790412395821@example.com",
+    "passwordHash": "$2b$10$JaL00foSD3q.rZ3puCOs.etIrchzjnx5mTz91UNGOLxlli0teQso2",
+    "role": "traveler",
+    "emailVerified": true,
+    "verificationToken": null,
+    "verificationTokenExpires": null,
+    "createdAt": "2026-09-26T08:46:35.884Z",
+    "updatedAt": "2026-09-26T08:46:36.025Z"
+  },
+  {
+    "id": 4,
+    "name": "Ratnagiri Alphonso & Craft Studio",
+    "businessName": "Ratnagiri Alphonso & Craft Studio",
+    "email": "merchant.test.1790412396105@ratnagiri.in",
+    "passwordHash": "$2b$10$h.U74AFW35MzeeIPLZvMDenEDCdho/KnX2JDlrsVl7YRh3SljBReG",
+    "role": "merchant",
+    "emailVerified": true,
+    "verificationToken": null,
+    "verificationTokenExpires": null,
+    "createdAt": "2026-09-26T08:46:36.164Z",
+    "updatedAt": "2026-09-26T08:46:36.179Z"
+  },
+  {
+    "id": 5,
+    "name": "Manish Bhave",
+    "email": "manishlbhave@gmail.com",
+    "passwordHash": "$2b$10$ty7NMKtuNj8oYI9ZJ7ecmucEFHqflpv.FcnDDgz/Pfsq.6ZXSWJNC",
+    "role": "traveler",
+    "emailVerified": true,
+    "verificationToken": null,
+    "verificationTokenExpires": null,
+    "createdAt": "2026-09-26T08:52:43.111Z",
+    "updatedAt": "2026-09-26T08:52:52.221Z"
+  },
+  {
+    "id": 6,
+    "name": "Kanva's cafe",
+    "businessName": "Kanva's cafe",
+    "email": "kanva@gmail.com",
+    "passwordHash": "$2b$10$uhIX6EL.yixPXWvoIkzAt.7iQqAbkReO/xHfmdV80Y4PBNc/UvEhe",
+    "role": "merchant",
+    "emailVerified": true,
+    "verificationToken": null,
+    "verificationTokenExpires": null,
+    "createdAt": "2026-09-26T10:23:41.158Z",
+    "updatedAt": "2026-09-26T10:23:43.967Z"
+  },
+  {
+    "id": 7,
+    "name": "Kanva's cafe",
+    "businessName": "Kanva's cafe",
+    "email": "123@gmail.com",
+    "passwordHash": "$2b$10$Y60qo6JSEOaIsr52Lz9F..FNdy49h6jQKgY.6NRa9/pOU26X.Et9m",
+    "role": "merchant",
+    "emailVerified": true,
+    "verificationToken": null,
+    "verificationTokenExpires": null,
+    "createdAt": "2026-09-26T10:24:09.540Z",
+    "updatedAt": "2026-09-26T10:24:26.558Z"
+  }
 ]

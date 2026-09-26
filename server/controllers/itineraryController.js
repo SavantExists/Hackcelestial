@@ -1,52 +1,27 @@
-const { readExperiences, budgetLevels } = require('./experienceController');
+const { getPublicExperiences } = require('./experienceController');
+const { buildRecommendations } = require('./recommendationController');
+const Itinerary = require('../models/mongoose/Itinerary');
 
 function minutes(value) {
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function scoreExperience(experience, preferences) {
-  const selectedVibes = Array.isArray(preferences.vibes) ? preferences.vibes : [];
-  const matches = experience.vibe.filter(vibe => selectedVibes.includes(vibe)).length;
-  const budgetScore = budgetLevels[experience.budget] <= budgetLevels[preferences.budget] ? 5 : -4;
-  const weatherScore = preferences.rain ? (experience.weather === 'covered' ? 10 : -18) : 2;
-  const duration = minutes(experience.duration) + minutes(experience.travel);
-  const timeScore = duration <= Number(preferences.hours || 2.5) * 60 ? 4 : -8;
-  const offerScore = Math.min(experience.merchantOffer || 0, 20) / 4;
-  return Math.max(20, Math.min(99, Math.round(experience.score + matches * 3 + budgetScore + weatherScore + timeScore + offerScore)));
-}
-
-function generateItinerary(req, res) {
-  const preferences = {
-    hours: Number(req.body.hours) || 2.5,
-    budget: budgetLevels[req.body.budget] ? req.body.budget : '$$',
-    vibes: Array.isArray(req.body.vibes) ? req.body.vibes : [],
-    rain: Boolean(req.body.rain)
-  };
-  const offers = req.app.locals.readOffers();
-  const experiences = readExperiences()
-    .filter(item => preferences.rain ? item.weather === 'covered' : item.featuredInClear !== false)
-    .map(item => {
-      const activeOffer = offers.filter(offer => offer.status === 'live' && new Date(offer.expiresAt) > new Date() && item.vibe.includes(offer.targetVibe))
-        .reduce((highest, offer) => Math.max(highest, offer.discount), item.merchantOffer || 0);
-      const enriched = { ...item, merchantOffer: activeOffer };
-      return { ...enriched, fit: scoreExperience(enriched, preferences), match: Math.min(99, scoreExperience(enriched, preferences) + 2) };
-    })
-    .sort((a, b) => b.fit - a.fit);
-
-  const itinerary = [];
-  let usedMinutes = 0;
-  for (const experience of experiences) {
-    const totalMinutes = minutes(experience.duration) + minutes(experience.travel);
-    if (itinerary.length < 3 && usedMinutes + totalMinutes <= preferences.hours * 60) {
-      itinerary.push(experience.id);
-      usedMinutes += totalMinutes;
-    }
+async function generateItinerary(req, res) {
+  try {
+    const result = await buildRecommendations({
+      ...req.body,
+      time_available_hours: req.body.time_available_hours ?? req.body.hours,
+      weather_condition: req.body.weather_condition ?? (req.body.rain ? 'rainy' : req.body.weather)
+    }, req.app);
+    res.json({ success: true, data: { ...result, experiences: result.recommendations } });
+  } catch (error) {
+    const status = /semantic|worker/i.test(error.message) ? 503 : 400;
+    res.status(status).json({ success: false, message: error.message });
   }
-  res.json({ success: true, data: { preferences, experiences, itinerary, usedMinutes } });
 }
 
-function validateItinerary(experienceIds, availableTime) {
+async function validateItinerary(experienceIds, availableTime) {
   const ids = Array.isArray(experienceIds) ? experienceIds.map(Number) : [];
   const capacity = Number(availableTime);
   if (!Number.isFinite(capacity) || capacity <= 0) return { error: 'Available time must be greater than zero.' };
@@ -54,7 +29,7 @@ function validateItinerary(experienceIds, availableTime) {
   if (ids.length > 3) return { error: 'An itinerary can contain at most 3 stops.' };
   if (new Set(ids).size !== ids.length) return { error: 'Duplicate experiences are not allowed.' };
 
-  const catalog = readExperiences();
+  const catalog = await getPublicExperiences();
   const selected = ids.map(id => catalog.find(experience => experience.id === id)).filter(Boolean);
   if (selected.length !== ids.length) return { error: 'One or more experiences could not be found.' };
 
@@ -84,26 +59,34 @@ function formatItinerary(validation) {
   };
 }
 
-function createItinerary(req, res) {
-  const validation = validateItinerary(req.body.experiences, req.body.availableTime);
+async function createItinerary(req, res) {
+  const validation = await validateItinerary(req.body.experiences, req.body.availableTime);
   if (validation.error) return res.status(400).json({ success: false, message: validation.error });
   const response = formatItinerary(validation);
   if (!response.feasible) return res.status(400).json({ success: false, message: 'The selected stops exceed your available time.' });
+  await Itinerary.create({
+    itineraryId: `HG-IT-${Date.now().toString(36).toUpperCase()}-${req.user.id}`,
+    userId: Number(req.user.id),
+    experiences: response.itinerary,
+    availableTime: response.availableTime,
+    totalTime: response.totalTime,
+    createdAt: new Date().toISOString()
+  });
   res.json({ success: true, data: response });
 }
 
-function removeFromItinerary(req, res) {
+async function removeFromItinerary(req, res) {
   const id = Number(req.params.experienceId);
   const experiences = Array.isArray(req.body.experiences) ? req.body.experiences.map(Number).filter(experienceId => experienceId !== id) : [];
   if (!experiences.length) return res.json({ success: true, data: { totalTime: 0, availableTime: Number(req.body.availableTime) || 0, remainingTime: Number(req.body.availableTime) || 0, stops: 0, feasible: true, itinerary: [], experiences: [] } });
-  const validation = validateItinerary(experiences, req.body.availableTime);
+  const validation = await validateItinerary(experiences, req.body.availableTime);
   if (validation.error) return res.status(400).json({ success: false, message: validation.error });
   res.json({ success: true, data: formatItinerary(validation) });
 }
 
-function bookItinerary(req, res) {
+async function bookItinerary(req, res) {
   const ids = Array.isArray(req.body.experienceIds) ? req.body.experienceIds.map(Number) : [];
-  const available = readExperiences();
+  const available = await getPublicExperiences();
   const selected = ids.map(id => available.find(experience => experience.id === id)).filter(Boolean);
   if (!selected.length) return res.status(400).json({ success: false, message: 'Choose at least one valid experience.' });
   if (selected.length !== ids.length || selected.length > 3) return res.status(400).json({ success: false, message: 'An itinerary can contain up to three valid experiences.' });
